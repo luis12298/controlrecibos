@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor de Recibos</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <h1>Gestor de Recibos</h1>
+
+    <div class="card">
+        <form id="receiptForm">
+            <div class="form-group">
+                <label>Descripción</label>
+                <input type="text" id="description" required>
+            </div>
+
+            <div class="form-group">
+                <label>Fecha</label>
+                <input type="date" id="date" required>
+            </div>
+
+            <div class="form-group">
+                <label>Imagen</label>
+                <div class="upload-area" id="uploadArea">
+                    <p>Selecciona una imagen</p>
+                    <button type="button" onclick="document.getElementById('fileInput').click()">Subir</button>
+                    <button type="button" onclick="document.getElementById('cameraInput').click()">Tomar Foto</button>
+                    <textarea id="pasteTextarea" placeholder="Mantene presionado para pegar imagen"
+                        style="width: 100%; margin-top: 10px; border: 2px dashed #999; border-radius: 5px; min-height:40px; resize: none;"></textarea>
+                    <div id="previewContainer"></div>
+                </div>
+                <input type="file" id="fileInput" accept="image/*">
+                <input type="file" id="cameraInput" accept="image/*" capture="environment">
+            </div>
+
+            <button type="submit" class="btn-primary">Cargar Recibo</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>Recibos</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Descripción</th>
+                    <th>Fecha</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody id="receiptsBody">
+                <tr>
+                    <td colspan="3" class="empty-state">Cargando...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="modal" id="imageModal">
+        <div class="modal-content">
+            <button class="close-modal" onclick="closeModal()">X</button>
+            <h3 id="modalTitle"></h3>
+            <p id="modalDate"></p>
+            <img id="modalImage" class="modal-image">
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.1.0/firebase-app.js";
+        import { getDatabase, ref, set, remove, onValue, push } from "https://www.gstatic.com/firebasejs/10.1.0/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyASah_0fZEcxkBVC_d1NHQyhTyFlqevlGs",
+            authDomain: "usuarios-94a70.firebaseapp.com",
+            databaseURL: "https://usuarios-94a70-default-rtdb.firebaseio.com",
+            projectId: "usuarios-94a70",
+            storageBucket: "usuarios-94a70.firebasestorage.app",
+            messagingSenderId: "1080132028374",
+            appId: "1:1080132028374:web:972f95d26fe2108e530677"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
+        const receiptsRef = ref(database, 'receipts');
+
+        let receipts = {};
+        let currentImageData = null;
+
+        document.getElementById('date').valueAsDate = new Date();
+        document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+        document.getElementById('cameraInput').addEventListener('change', handleFileSelect);
+
+        // Escuchar cambios en tiempo real
+        onValue(receiptsRef, (snapshot) => {
+            receipts = snapshot.val() || {};
+            renderReceipts();
+        });
+
+        // Funcionalidad de pegar imagen con textarea
+        const pasteBtn = document.getElementById('pasteBtn');
+        const pasteTextarea = document.getElementById('pasteTextarea');
+
+
+
+        // Detectar cuando se pega en el textarea
+        pasteTextarea.addEventListener('paste', function (event) {
+            const items = (event.clipboardData || event.originalEvent?.clipboardData).items;
+            console.log(JSON.stringify(items));
+
+            for (let item of items) {
+                console.log(items);
+                const blob = item.getAsFile();
+                if (!blob) continue;
+
+                const reader = new FileReader();
+                reader.onload = function (event) {
+                    loadImage(event.target.result);
+                };
+                reader.readAsDataURL(blob);
+            }
+
+            event.preventDefault();
+        });
+
+        // También detectar paste en toda la página (para Ctrl+V en PC)
+        document.addEventListener('paste', function (event) {
+            const items = (event.clipboardData || event.originalEvent?.clipboardData).items;
+
+            for (let item of items) {
+                if (item.type.indexOf('image') !== -1) {
+                    const blob = item.getAsFile();
+                    if (!blob) continue;
+
+                    const reader = new FileReader();
+                    reader.onload = function (event) {
+                        loadImage(event.target.result);
+                    };
+                    reader.readAsDataURL(blob);
+                    event.preventDefault();
+                    break;
+                }
+            }
+        });
+
+        function loadImage(dataURL) {
+            currentImageData = dataURL;
+            document.getElementById('previewContainer').innerHTML =
+                `<img src="${currentImageData}" class="preview-image">`;
+            pasteTextarea.value = '✓ Imagen cargada';
+            setTimeout(() => {
+                pasteTextarea.value = '';
+            }, 1500);
+        }
+
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function (event) {
+                    currentImageData = event.target.result;
+                    document.getElementById('previewContainer').innerHTML =
+                        `<img src="${currentImageData}" class="preview-image">`;
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        document.getElementById('receiptForm').addEventListener('submit', async function (e) {
+            e.preventDefault();
+            if (!currentImageData) {
+                alert('Selecciona una imagen');
+                return;
+            }
+
+            const newReceiptRef = push(receiptsRef);
+            const receiptData = {
+                description: document.getElementById('description').value,
+                date: document.getElementById('date').value,
+                image: currentImageData,
+                timestamp: Date.now()
+            };
+
+            try {
+                await set(newReceiptRef, receiptData);
+                document.getElementById('receiptForm').reset();
+                document.getElementById('date').valueAsDate = new Date();
+                document.getElementById('previewContainer').innerHTML = '';
+                currentImageData = null;
+            } catch (error) {
+                console.error('Error al guardar:', error);
+                alert('Error al guardar el recibo');
+            }
+        });
+
+        function renderReceipts() {
+            const tbody = document.getElementById('receiptsBody');
+            const receiptsArray = Object.entries(receipts).map(([id, data]) => ({
+                id,
+                ...data
+            }));
+
+            receiptsArray.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+            if (receiptsArray.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="empty-state">Sin recibos</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = receiptsArray.map(r => `
+                <tr>
+                    <td>${r.description}</td>
+                    <td>${new Date(r.date).toLocaleDateString('es')}</td>
+                    <td>
+                        <button onclick="window.viewReceipt('${r.id}')">Ver</button>
+                        <button class="btn-delete" onclick="window.deleteReceipt('${r.id}')">Eliminar</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        window.viewReceipt = function (id) {
+            const r = receipts[id];
+            if (r) {
+                document.getElementById('modalTitle').textContent = r.description;
+                document.getElementById('modalDate').textContent = new Date(r.date).toLocaleDateString('es');
+                document.getElementById('modalImage').src = r.image;
+                document.getElementById('imageModal').classList.add('active');
+            }
+        };
+
+        window.deleteReceipt = async function (id) {
+            if (confirm('¿Eliminar este recibo?')) {
+                try {
+                    await remove(ref(database, `receipts/${id}`));
+                } catch (error) {
+                    console.error('Error al eliminar:', error);
+                    alert('Error al eliminar el recibo');
+                }
+            }
+        };
+
+        window.closeModal = function () {
+            document.getElementById('imageModal').classList.remove('active');
+        };
+
+        document.getElementById('imageModal').addEventListener('click', function (e) {
+            if (e.target === this) window.closeModal();
+        });
+    </script>
+</body>
+
+</html>
