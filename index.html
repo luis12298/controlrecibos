@@ -25,6 +25,7 @@
 
             <div class="form-group">
                 <label>Imagen</label>
+                <button type="submit" class="btn-primary">Cargar Recibo</button>
                 <div class="upload-area" id="uploadArea">
                     <p>Selecciona una imagen</p>
                     <button type="button" onclick="document.getElementById('fileInput').click()">Subir</button>
@@ -37,7 +38,7 @@
                 <input type="file" id="cameraInput" accept="image/*" capture="environment">
             </div>
 
-            <button type="submit" class="btn-primary">Cargar Recibo</button>
+
         </form>
     </div>
 
@@ -89,7 +90,11 @@
         let receipts = {};
         let currentImageData = null;
 
-        document.getElementById('date').valueAsDate = new Date();
+        const today = new Date();
+        today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+        document.getElementById('date').valueAsDate = today;
+
+
         document.getElementById('fileInput').addEventListener('change', handleFileSelect);
         document.getElementById('cameraInput').addEventListener('change', handleFileSelect);
 
