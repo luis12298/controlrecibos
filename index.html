@@ -11,19 +11,6 @@
 <body>
     <h1>Gestor de Recibos</h1>
 
-    <div id="offlineIndicator"
-        style="display: none; background: #ff9800; color: white; padding: 10px; text-align: center; margin-bottom: 10px;">
-        Sin conexión - Los cambios se guardarán localmente
-    </div>
-
-    <div id="syncButton"
-        style="display: none; background: #4CAF50; color: white; padding: 10px; text-align: center; margin-bottom: 10px; cursor: pointer;">
-        <button onclick="window.syncPendingChanges()"
-            style="background: white; color: #4CAF50; border: none; padding: 10px 20px; font-size: 16px; cursor: pointer; border-radius: 5px;">
-            📤 Push - Subir cambios pendientes al servidor
-        </button>
-    </div>
-
     <div class="card">
         <form id="receiptForm">
             <div class="form-group">
@@ -82,64 +69,54 @@
         </div>
     </div>
 
-    <script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.1.0/firebase-app.js";
+        import { getDatabase, ref, set, remove, onValue, push } from "https://www.gstatic.com/firebasejs/10.1.0/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyASah_0fZEcxkBVC_d1NHQyhTyFlqevlGs",
+            authDomain: "usuarios-94a70.firebaseapp.com",
+            databaseURL: "https://usuarios-94a70-default-rtdb.firebaseio.com",
+            projectId: "usuarios-94a70",
+            storageBucket: "usuarios-94a70.firebasestorage.app",
+            messagingSenderId: "1080132028374",
+            appId: "1:1080132028374:web:972f95d26fe2108e530677"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
+        const receiptsRef = ref(database, 'receipts');
+
         let receipts = {};
         let currentImageData = null;
-        let isOnline = navigator.onLine;
 
         const today = new Date();
         today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
         document.getElementById('date').valueAsDate = today;
 
-        // Cargar recibos desde localStorage
-        function loadLocalReceipts() {
-            const localReceipts = localStorage.getItem('receipts');
-            if (localReceipts) {
-                receipts = JSON.parse(localReceipts);
-            }
-            renderReceipts();
-        }
-
-        // Cargar inicial
-        loadLocalReceipts();
-
-        // Verificar estado inicial
-        if (!isOnline) {
-            document.getElementById('offlineIndicator').style.display = 'block';
-        }
-
-        // Detectar cambios en conexión
-        window.addEventListener('online', () => {
-            isOnline = true;
-            document.getElementById('offlineIndicator').style.display = 'none';
-            checkPendingChanges();
-        });
-
-        window.addEventListener('offline', () => {
-            isOnline = false;
-            document.getElementById('offlineIndicator').style.display = 'block';
-        });
-
-        function checkPendingChanges() {
-            const pending = JSON.parse(localStorage.getItem('pendingReceipts') || '[]');
-            const pendingDeletes = JSON.parse(localStorage.getItem('pendingDeletes') || '[]');
-
-            if (pending.length > 0 || pendingDeletes.length > 0) {
-                document.getElementById('syncButton').style.display = 'block';
-            } else {
-                document.getElementById('syncButton').style.display = 'none';
-            }
-        }
 
         document.getElementById('fileInput').addEventListener('change', handleFileSelect);
         document.getElementById('cameraInput').addEventListener('change', handleFileSelect);
 
+        // Escuchar cambios en tiempo real
+        onValue(receiptsRef, (snapshot) => {
+            receipts = snapshot.val() || {};
+            renderReceipts();
+        });
+
+        // Funcionalidad de pegar imagen con textarea
+        const pasteBtn = document.getElementById('pasteBtn');
         const pasteTextarea = document.getElementById('pasteTextarea');
 
+
+
+        // Detectar cuando se pega en el textarea
         pasteTextarea.addEventListener('paste', function (event) {
             const items = (event.clipboardData || event.originalEvent?.clipboardData).items;
+            console.log(JSON.stringify(items));
 
             for (let item of items) {
+                console.log(items);
                 const blob = item.getAsFile();
                 if (!blob) continue;
 
@@ -153,6 +130,7 @@
             event.preventDefault();
         });
 
+        // También detectar paste en toda la página (para Ctrl+V en PC)
         document.addEventListener('paste', function (event) {
             const items = (event.clipboardData || event.originalEvent?.clipboardData).items;
 
@@ -202,6 +180,7 @@
                 return;
             }
 
+            const newReceiptRef = push(receiptsRef);
             const receiptData = {
                 description: document.getElementById('description').value,
                 date: document.getElementById('date').value,
@@ -209,26 +188,15 @@
                 timestamp: Date.now()
             };
 
-            // Siempre guardar localmente primero
-            const localId = 'local_' + Date.now();
-            receipts[localId] = receiptData;
-            localStorage.setItem('receipts', JSON.stringify(receipts));
-
-            const pending = JSON.parse(localStorage.getItem('pendingReceipts') || '[]');
-            pending.push({ id: localId, data: receiptData });
-            localStorage.setItem('pendingReceipts', JSON.stringify(pending));
-
-            renderReceipts();
-            checkPendingChanges();
-
-            document.getElementById('receiptForm').reset();
-            document.getElementById('date').valueAsDate = new Date();
-            document.getElementById('previewContainer').innerHTML = '';
-            currentImageData = null;
-
-            // Si hay internet, sincronizar automáticamente
-            if (isOnline) {
-                setTimeout(() => window.syncPendingChanges(), 500);
+            try {
+                await set(newReceiptRef, receiptData);
+                document.getElementById('receiptForm').reset();
+                document.getElementById('date').valueAsDate = new Date();
+                document.getElementById('previewContainer').innerHTML = '';
+                currentImageData = null;
+            } catch (error) {
+                console.error('Error al guardar:', error);
+                alert('Error al guardar el recibo');
             }
         });
 
@@ -248,7 +216,7 @@
 
             tbody.innerHTML = receiptsArray.map(r => `
                 <tr>
-                    <td>${r.description}${r.id.startsWith('local_') ? ' 🔄' : ''}</td>
+                    <td>${r.description}</td>
                     <td>${new Date(r.date).toLocaleDateString('es')}</td>
                     <td>
                         <button onclick="window.viewReceipt('${r.id}')">Ver</button>
@@ -268,84 +236,14 @@
             }
         };
 
-        window.deleteReceipt = function (id) {
+        window.deleteReceipt = async function (id) {
             if (confirm('¿Eliminar este recibo?')) {
-                delete receipts[id];
-                localStorage.setItem('receipts', JSON.stringify(receipts));
-
-                if (!id.startsWith('local_')) {
-                    const pendingDeletes = JSON.parse(localStorage.getItem('pendingDeletes') || '[]');
-                    pendingDeletes.push(id);
-                    localStorage.setItem('pendingDeletes', JSON.stringify(pendingDeletes));
-                    checkPendingChanges();
-                }
-
-                renderReceipts();
-            }
-        };
-
-        window.syncPendingChanges = async function () {
-            if (!isOnline) {
-                alert('No hay conexión a internet');
-                return;
-            }
-
-            const pending = JSON.parse(localStorage.getItem('pendingReceipts') || '[]');
-            const pendingDeletes = JSON.parse(localStorage.getItem('pendingDeletes') || '[]');
-
-            if (pending.length === 0 && pendingDeletes.length === 0) {
-                document.getElementById('syncButton').style.display = 'none';
-                return;
-            }
-
-            try {
-                const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.1.0/firebase-app.js");
-                const { getDatabase, ref, set, remove, push } = await import("https://www.gstatic.com/firebasejs/10.1.0/firebase-database.js");
-
-                const firebaseConfig = {
-                    apiKey: "AIzaSyASah_0fZEcxkBVC_d1NHQyhTyFlqevlGs",
-                    authDomain: "usuarios-94a70.firebaseapp.com",
-                    databaseURL: "https://usuarios-94a70-default-rtdb.firebaseio.com",
-                    projectId: "usuarios-94a70",
-                    storageBucket: "usuarios-94a70.firebasestorage.app",
-                    messagingSenderId: "1080132028374",
-                    appId: "1:1080132028374:web:972f95d26fe2108e530677"
-                };
-
-                const app = initializeApp(firebaseConfig);
-                const database = getDatabase(app);
-                const receiptsRef = ref(database, 'receipts');
-
-                // Subir nuevos recibos
-                for (const item of pending) {
-                    const newReceiptRef = push(receiptsRef);
-                    await set(newReceiptRef, item.data);
-                    delete receipts[item.id];
-                }
-
-                // Eliminar recibos pendientes
-                for (const id of pendingDeletes) {
+                try {
                     await remove(ref(database, `receipts/${id}`));
+                } catch (error) {
+                    console.error('Error al eliminar:', error);
+                    alert('Error al eliminar el recibo');
                 }
-
-                localStorage.removeItem('pendingReceipts');
-                localStorage.removeItem('pendingDeletes');
-                localStorage.setItem('receipts', JSON.stringify(receipts));
-
-                document.getElementById('syncButton').style.display = 'none';
-
-                // Recargar datos de Firebase
-                const { onValue } = await import("https://www.gstatic.com/firebasejs/10.1.0/firebase-database.js");
-                onValue(receiptsRef, (snapshot) => {
-                    receipts = snapshot.val() || {};
-                    localStorage.setItem('receipts', JSON.stringify(receipts));
-                    renderReceipts();
-                }, { onlyOnce: true });
-
-                alert('Cambios sincronizados correctamente');
-            } catch (error) {
-                console.error('Error al sincronizar:', error);
-                alert('Error al sincronizar. Verifica tu conexión.');
             }
         };
 
@@ -356,9 +254,6 @@
         document.getElementById('imageModal').addEventListener('click', function (e) {
             if (e.target === this) window.closeModal();
         });
-
-        // Verificar cambios pendientes al cargar
-        checkPendingChanges();
     </script>
 </body>
 
